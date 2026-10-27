@@ -165,11 +165,23 @@ def _run_update(upstream_repo, upstream_branch, version):
 
 
 def _update_packages():
-    scall("uv pip install -U -r requirements.txt", shell=True)
-    _LOGGER.info("Successfully Updated all the Packages!")
+    if environ.get("WZML_AUTO_UPDATE_PACKAGES", "").strip().lower() not in ("1", "true", "yes"):
+        _LOGGER.info(
+            "Runtime package upgrades disabled; dependencies are installed during image build. "
+            "Set WZML_AUTO_UPDATE_PACKAGES=1 to opt in."
+        )
+        return
+    result = scall("uv pip install -U -r requirements.txt", shell=True)
+    if result == 0:
+        _LOGGER.info("Successfully updated all packages.")
+    else:
+        _LOGGER.error("Package update failed; continuing with installed environment.")
 
 
 def _cleanup():
+    if environ.get("WZML_AUTO_CLEANUP", "").strip().lower() not in ("1", "true", "yes"):
+        _LOGGER.info("Startup cleanup disabled; preserving repository and deployment files.")
+        return
     for d in ["gen_scripts", ".github"]:
         if isdir(d):
             rmtree(d, ignore_errors=True)
@@ -187,10 +199,18 @@ def main():
         _LOGGER.error("BOT_TOKEN variable is missing! Exiting now")
         exit(1)
     _fetch_config_from_db(config_file, _db_partition_id(bot_token.split(":", 1)[0]))
-    upstream_repo = config_file.get("UPSTREAM_REPO", "").strip()
-    upstream_branch = config_file.get("UPSTREAM_BRANCH", "").strip() or "wzv3"
-    _run_update(upstream_repo, upstream_branch, version)
-    _cleanup()
+    if environ.get("WZML_AUTO_UPDATE_SOURCE", "").strip().lower() in ("1", "true", "yes"):
+        _LOGGER.warning("WZML_AUTO_UPDATE_SOURCE enabled: source reset is explicitly requested")
+        upstream_repo = config_file.get("UPSTREAM_REPO", "").strip()
+        upstream_branch = config_file.get("UPSTREAM_BRANCH", "").strip() or "wzv3"
+        _run_update(upstream_repo, upstream_branch, version)
+        if environ.get("WZML_AUTO_CLEANUP", "").strip().lower() in ("1", "true", "yes"):
+            _cleanup()
+    else:
+        _LOGGER.info(
+            "Automatic source update disabled; preserving deployed fixes. "
+            "Set WZML_AUTO_UPDATE_SOURCE=1 only for an intentional source update."
+        )
     _update_packages()
 
 
