@@ -1,0 +1,49 @@
+name: WZML-X Runtime Checks
+
+on:
+  push:
+    branches: [wzv3]
+  pull_request:
+    branches: [wzv3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wzmlx-runtime-\${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile Python source
+        run: python -m compileall -q bot
+      - name: Check deployment safety and Telegram selector contracts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          updater = Path("update.py").read_text()
+          buttons = Path("bot/helper/ext_utils/bot_utils.py").read_text()
+          selector = Path("bot/modules/file_selector.py").read_text()
+          qbit = Path("bot/helper/mirror_leech_utils/download_utils/qbit_download.py").read_text()
+          handlers = Path("bot/core/handlers.py").read_text()
+
+          assert 'WZML_AUTO_UPDATE_SOURCE' in updater
+          assert 'WZML_AUTO_UPDATE_PACKAGES' in updater
+          assert 'WZML_AUTO_CLEANUP' in updater
+          assert 'sel list ' in buttons
+          assert 'app/files?gid=' not in buttons
+          assert 'async def _show_qbit_file_page' in selector
+          assert 'sel tog ' in selector
+          assert 'file_prio(' in selector
+          assert 'if listener.select:' in qbit
+          assert 'filters=regex("^sel")' in handlers
+          print("WZML-X source safety and Telegram selector contracts: PASS")
+          PY
