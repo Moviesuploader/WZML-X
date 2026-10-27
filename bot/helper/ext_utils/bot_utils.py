@@ -169,30 +169,10 @@ def compare_versions(v1, v2):
 
 
 def bt_selection_buttons(id_, message=None):
+    # Keep file selection inside Telegram; no public BASE_URL or tunnel is required.
     gid = id_[:12] if len(id_) > 25 else id_
-    bot_id = _resolve_bot_id()
-    pin = derive_pin(id_, bot_id)
     buttons = ButtonMaker()
-    private = bool(
-        message is not None
-        and getattr(message, "chat", None) is not None
-        and message.chat.type == ChatType.PRIVATE
-        and str(Config.BASE_URL).startswith("https://")
-    )
-    add_open = buttons.web_app_button if private else buttons.url_button
-    if Config.WEB_PINCODE:
-        add_open(
-            "Select Files",
-            f"{Config.BASE_URL}/app/files?gid={id_}",
-            style=ButtonStyle.PRIMARY,
-        )
-        buttons.data_button("Pincode", f"sel pin {gid} {pin}")
-    else:
-        add_open(
-            "Select Files",
-            f"{Config.BASE_URL}/app/files?gid={id_}&pin={pin}",
-            style=ButtonStyle.PRIMARY,
-        )
+    buttons.data_button("📂 Select Files", f"sel list {gid} 0", style=ButtonStyle.PRIMARY)
     buttons.data_button(
         "Done Selecting", f"sel done {gid} {id_}", style=ButtonStyle.SUCCESS
     )
