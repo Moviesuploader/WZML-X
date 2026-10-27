@@ -156,7 +156,6 @@ async def _show_qbit_file_page(query, task, gid, page=0):
             "\\n".join(lines), reply_markup=buttons.build_menu(1),
             disable_web_page_preview=True,
         )
-        await query.answer()
     except Exception as exc:
         LOGGER.exception("Telegram-native file selector failed")
         await query.answer(f"Selector error: {str(exc)[:120]}", show_alert=True)
@@ -207,6 +206,7 @@ async def confirm_selection(_, query):
             else:
                 page = int(data[3]) if len(data) > 3 else 0
                 await _show_qbit_file_page(query, task, data[2], page)
+                await query.answer()
         except Exception as exc:
             LOGGER.exception("File selector callback failed")
             await query.answer(f"Selection error: {str(exc)[:120]}", show_alert=True)
