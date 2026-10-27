@@ -1,3 +1,4 @@
+from html import escape
 from aiofiles.os import remove, path as aiopath
 from asyncio import iscoroutinefunction
 
@@ -17,6 +18,8 @@ from ..helper.ext_utils.bot_utils import (
 )
 from ..helper.ext_utils.status_utils import get_task_by_gid, MirrorStatus
 from ..helper.ext_utils.task_manager import limit_checker
+from ..helper.telegram_helper.button_build import ButtonMaker
+from pyrogram.enums import ButtonStyle
 from ..helper.telegram_helper.message_utils import (
     send_message,
     send_status_message,
@@ -26,9 +29,6 @@ from ..helper.telegram_helper.message_utils import (
 
 @new_task
 async def select(_, message):
-    if not Config.BASE_URL:
-        await send_message(message, "Base URL not defined!")
-        return
     user_id = message.from_user.id
     text = message.text
     if " " in text.split("\n")[0]:
@@ -109,6 +109,59 @@ async def select(_, message):
     await send_message(message, msg, SBUTTONS)
 
 
+async def _show_qbit_file_page(query, task, gid, page=0):
+    if not task.listener.is_qbit or TorrentManager.qbittorrent is None:
+        await query.answer("Telegram file selection currently supports qBittorrent tasks.", show_alert=True)
+        return
+    try:
+        files = await TorrentManager.qbittorrent.torrents.files(task.hash())
+        if not files:
+            await query.answer("Torrent file list is empty.", show_alert=True)
+            return
+        page_size = 8
+        pages = max(1, (len(files) + page_size - 1) // page_size)
+        page = min(max(0, int(page)), pages - 1)
+        buttons = ButtonMaker()
+        lines = [
+            "⌬ <b>WZML-X · TELEGRAM FILE SELECTOR</b>",
+            "━━━━━━━━━━━━━━━━━━",
+            f"📦 <b>{escape(str(task.name() or 'Torrent'))}</b>",
+            f"Page <b>{page + 1}/{pages}</b> · Total files <b>{len(files)}</b>",
+            "",
+            "Tap a file to select or deselect it:",
+        ]
+        for item in files[page * page_size:(page + 1) * page_size]:
+            idx = int(item.index)
+            mark = "☑️" if int(item.priority) > 0 else "⬜"
+            name = str(item.name).replace("\\", "/").rsplit("/", 1)[-1]
+            label = f"{mark} {name}"
+            if len(label) > 55:
+                label = label[:52] + "..."
+            buttons.data_button(label, f"sel tog {gid} {idx} {page}")
+        if page > 0:
+            buttons.data_button("⬅️ Previous", f"sel page {gid} {page - 1}", "footer")
+        if page + 1 < pages:
+            buttons.data_button("Next ➡️", f"sel page {gid} {page + 1}", "footer")
+        hash_id = task.hash()
+        buttons.data_button(
+            "✅ Done Selecting", f"sel done {gid} {hash_id}",
+            position="footer", style=ButtonStyle.SUCCESS,
+        )
+        buttons.data_button(
+            "✖️ Cancel Task", f"sel cancel {gid}",
+            position="footer", style=ButtonStyle.DANGER,
+        )
+        lines += ["", "Selected files download; deselected files are skipped."]
+        await query.message.edit_text(
+            "\\n".join(lines), reply_markup=buttons.build_menu(1),
+            disable_web_page_preview=True,
+        )
+        await query.answer()
+    except Exception as exc:
+        LOGGER.exception("Telegram-native file selector failed")
+        await query.answer(f"Selector error: {str(exc)[:120]}", show_alert=True)
+
+
 async def _selection_limit_exceeded(task, message):
     mmsg = await limit_checker(task.listener)
     if not mmsg:
@@ -131,6 +184,32 @@ async def confirm_selection(_, query):
         return
     if user_id != task.listener.user_id:
         await query.answer("This task is not for you!", show_alert=True)
+    elif data[1] in ("list", "page", "tog"):
+        if not task.listener.is_qbit:
+            await query.answer("Telegram file selector currently supports qBittorrent tasks.", show_alert=True)
+            return
+        try:
+            hash_id = task.hash()
+            files = await TorrentManager.qbittorrent.torrents.files(hash_id)
+            if data[1] == "tog":
+                idx = int(data[3])
+                page = int(data[4]) if len(data) > 4 else 0
+                item = next((x for x in files if int(x.index) == idx), None)
+                if item is None:
+                    await query.answer("File no longer exists.", show_alert=True)
+                    return
+                priority = 0 if int(item.priority) > 0 else 1
+                await TorrentManager.qbittorrent.torrents.file_prio(
+                    hash=hash_id, id=[idx], priority=priority
+                )
+                await _show_qbit_file_page(query, task, data[2], page)
+                await query.answer("File deselected" if priority == 0 else "File selected")
+            else:
+                page = int(data[3]) if len(data) > 3 else 0
+                await _show_qbit_file_page(query, task, data[2], page)
+        except Exception as exc:
+            LOGGER.exception("File selector callback failed")
+            await query.answer(f"Selection error: {str(exc)[:120]}", show_alert=True)
     elif data[1] == "pin":
         await query.answer(data[3], show_alert=True)
     elif data[1] == "done":
