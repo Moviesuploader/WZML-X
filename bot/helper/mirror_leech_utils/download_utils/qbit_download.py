@@ -65,12 +65,24 @@ async def add_qb_torrent(listener, path, ratio, seed_time):
         try:
             await TorrentManager.qbittorrent.torrents.add(form.build())
         except (ClientError, TimeoutError, Exception, AQError) as e:
-            LOGGER.error(
-                f"{e}. {listener.mid}. Already added torrent or unsupported link/file type!"
-            )
-            await listener.on_download_error(
-                f"{e}. {listener.mid}. Already added torrent or unsupported link/file type!"
-            )
+            status = getattr(e, "status", None)
+            if status is None:
+                status = getattr(getattr(e, "response", None), "status", None)
+            if status == 409 or "status=409" in str(e):
+                error_msg = (
+                    "qBittorrent returned HTTP 409 Conflict. This usually means the same "
+                    "torrent/magnet is already present in qBittorrent. Check the qBittorrent "
+                    "Web UI for the existing torrent before retrying; do not delete its data. "
+                    "If no matching torrent exists, verify that the input is a valid magnet "
+                    "or a direct .torrent URL/file."
+                )
+            else:
+                error_msg = (
+                    f"qBittorrent could not add this input. Use a valid magnet or direct "
+                    f".torrent URL/file. API error: {e}"
+                )
+            LOGGER.error("%s. Task message ID: %s", error_msg, listener.mid)
+            await listener.on_download_error(error_msg)
             return
         tor_info = await TorrentManager.qbittorrent.torrents.info(tag=f"{listener.mid}")
         if len(tor_info) == 0:
