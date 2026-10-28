@@ -68,6 +68,7 @@ class TelegramUploader:
         self._error = ""
         self._upload_seq = []
         self._msg_to_seq = {}
+        self._pm_delivered_seq = set()
 
     async def _user_settings(self):
         settings_map = {
@@ -334,7 +335,7 @@ class TelegramUploader:
                     LOGGER.error(f"Failed To Send in BotPM:\n{err_msg}")
 
     async def _sequence_copies(self, src_chat):
-        for entry in self._upload_seq:
+        for seq_idx, entry in enumerate(self._upload_seq):
             if entry is None:
                 continue
             chat_id = entry["chat_id"]
@@ -386,7 +387,7 @@ class TelegramUploader:
                         f"Make sure bot has message delete permission: {e}"
                     )
                     continue
-            if self._bot_pm:
+            if self._bot_pm and not self._is_private and seq_idx not in self._pm_delivered_seq:
                 try:
                     await _call_with_flood_retry(
                         TgClient.bot.copy_message,
@@ -429,6 +430,35 @@ class TelegramUploader:
                     if not self._listener.is_cancelled:
                         LOGGER.error(f"Failed to forward to {dest}: {e}")
 
+    async def _send_file_to_bot_pm(self, sent, seq_idx):
+        if not self._bot_pm or self._is_private or sent is None:
+            return
+        try:
+            await _call_with_flood_retry(
+                TgClient.bot.copy_message,
+                chat_id=self._listener.user_id,
+                from_chat_id=sent.chat.id,
+                message_id=sent.id,
+                reply_parameters=(
+                    ReplyParameters(message_id=self._listener.pm_msg.id)
+                    if self._listener.pm_msg
+                    else None
+                ),
+                disable_notification=True,
+            )
+            self._pm_delivered_seq.add(seq_idx)
+            LOGGER.info(
+                "Incremental Bot PM delivery completed for %s",
+                self._upload_seq[seq_idx]["file_"],
+            )
+        except Exception as err:
+            if not self._listener.is_cancelled:
+                LOGGER.warning(
+                    "Incremental Bot PM delivery failed for %s; final delivery pass will retry: %s",
+                    self._upload_seq[seq_idx]["file_"],
+                    err,
+                )
+
     async def _upload_file_task(self, file_, f_path, dirpath, user_session, seq_idx):
         up_path = None
         try:
@@ -437,6 +467,7 @@ class TelegramUploader:
                 cap_mono, up_path, file_, seq_idx, user_session=user_session
             )
             if sent and not self._is_corrupted:
+                await self._send_file_to_bot_pm(sent, seq_idx)
                 if self._listener.is_super_chat or self._listener.up_dest:
                     if not self._is_private:
                         entry = self._upload_seq[seq_idx]
