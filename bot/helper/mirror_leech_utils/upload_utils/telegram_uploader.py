@@ -81,11 +81,12 @@ class TelegramUploader:
         }
 
         for key, (attr, default) in settings_map.items():
-            setattr(
-                self,
-                attr,
-                self._listener.user_dict.get(key) or getattr(Config, key, default),
+            value = (
+                self._listener.user_dict[key]
+                if key in self._listener.user_dict
+                else getattr(Config, key, default)
             )
+            setattr(self, attr, value)
 
         if self._thumb != "none" and not await aiopath.exists(self._thumb):
             self._thumb = None
