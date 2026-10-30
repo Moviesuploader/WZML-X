@@ -177,6 +177,7 @@ class TelegramUploader:
             for part in parts[1:]:
                 args = part.split(":")
                 if len(args) < 2:
+                    cap_mono = cap_mono.replace(args[0], "", -1)
                     continue
 
                 # The optional final field is a replacement count only when
