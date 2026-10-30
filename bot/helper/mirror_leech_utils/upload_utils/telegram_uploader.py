@@ -176,11 +176,23 @@ class TelegramUploader:
 
             for part in parts[1:]:
                 args = part.split(":")
-                cap_mono = cap_mono.replace(
-                    args[0],
-                    args[1] if len(args) > 1 else "",
-                    int(args[2]) if len(args) == 3 else -1,
-                )
+                if len(args) < 2:
+                    cap_mono = cap_mono.replace(args[0], "", -1)
+                    continue
+
+                # The optional final field is a replacement count only when
+                # numeric. Replacement text may contain colons/non-numeric
+                # values such as "illuminati".
+                replace_count = -1
+                replacement = ":".join(args[1:])
+                if len(args) >= 3:
+                    try:
+                        replace_count = int(args[-1].strip())
+                        replacement = ":".join(args[1:-1])
+                    except ValueError:
+                        pass
+
+                cap_mono = cap_mono.replace(args[0], replacement, replace_count)
             cap_mono = re_sub(
                 r"%%|&%&|\$%\$",
                 lambda m: {"%%": "|", "&%&": "{", "$%$": "}"}[m.group()],
