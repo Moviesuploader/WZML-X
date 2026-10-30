@@ -1,6 +1,9 @@
 from aiofiles.os import remove, path as aiopath
 from aiofiles import open as aiopen
 from asyncio import sleep, TimeoutError
+from base64 import b32decode
+from hashlib import sha1
+from re import search as re_search
 from aioqbt.api import AddFormBuilder
 from aioqbt.exc import AQError
 from aiohttp.client_exceptions import ClientError
@@ -42,6 +45,58 @@ def _get_hash_file(fpath):
 """
 
 
+
+def _bencode_string(data, pos):
+    colon = data.index(b":", pos)
+    size = int(data[pos:colon])
+    start = colon + 1
+    end = start + size
+    return data[start:end], end
+
+
+def _bencode_skip(data, pos):
+    token = data[pos:pos + 1]
+    if token.isdigit():
+        return _bencode_string(data, pos)[1]
+    if token == b"i":
+        return data.index(b"e", pos) + 1
+    if token in (b"l", b"d"):
+        pos += 1
+        while data[pos:pos + 1] != b"e":
+            if token == b"d":
+                _, pos = _bencode_string(data, pos)
+            pos = _bencode_skip(data, pos)
+        return pos + 1
+    raise ValueError("Invalid bencoded torrent data")
+
+
+def _torrent_info_hash(link):
+    match = re_search(r"(?:^|[?&])xt=urn:btih:([A-Za-z0-9]+)", link or "", flags=0)
+    if match:
+        value = match.group(1)
+        if len(value) == 40:
+            return value.lower()
+        if len(value) == 32:
+            return b32decode(value.upper()).hex()
+
+    try:
+        with open(link, "rb") as torrent_file:
+            data = torrent_file.read()
+        if not data.startswith(b"d"):
+            return None
+        pos = 1
+        while data[pos:pos + 1] != b"e":
+            key, pos = _bencode_string(data, pos)
+            start = pos
+            end = _bencode_skip(data, pos)
+            if key == b"info":
+                return sha1(data[start:end]).hexdigest()
+            pos = end
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
 async def add_qb_torrent(listener, path, ratio, seed_time):
     if Config.DISABLE_TORRENTS:
         await listener.on_download_error("Torrents are disabled in the configuration.")
@@ -68,14 +123,41 @@ async def add_qb_torrent(listener, path, ratio, seed_time):
             status = getattr(e, "status", None)
             if status is None:
                 status = getattr(getattr(e, "response", None), "status", None)
-            if status == 409 or "status=409" in str(e):
-                error_msg = (
-                    "qBittorrent returned HTTP 409 Conflict. This usually means the same "
-                    "torrent/magnet is already present in qBittorrent. Check the qBittorrent "
-                    "Web UI for the existing torrent before retrying; do not delete its data. "
-                    "If no matching torrent exists, verify that the input is a valid magnet "
-                    "or a direct .torrent URL/file."
-                )
+            if status == 409 or "status=409" in str(e) or "409" in str(e):
+                existing = []
+                info_hash = _torrent_info_hash(listener.link)
+                if info_hash:
+                    try:
+                        existing = await TorrentManager.qbittorrent.torrents.info(
+                            hashes=[info_hash]
+                        )
+                    except Exception as lookup_error:
+                        LOGGER.warning(
+                            "Could not inspect existing qBittorrent torrent (%s)",
+                            type(lookup_error).__name__,
+                        )
+                if existing:
+                    existing_torrent = existing[0]
+                    progress = float(getattr(existing_torrent, "progress", 0) or 0) * 100
+                    error_msg = (
+                        "This torrent is already present in qBittorrent. "
+                        f"Existing torrent: {existing_torrent.name} "
+                        f"({progress:.1f}% complete). "
+                        "Its existing download and files were left untouched. "
+                        "Check the qBittorrent status/Web UI instead of adding it again."
+                    )
+                    LOGGER.info(
+                        "Duplicate qBittorrent torrent detected: hash=%s name=%s progress=%.1f%%",
+                        info_hash,
+                        existing_torrent.name,
+                        progress,
+                    )
+                else:
+                    error_msg = (
+                        "qBittorrent rejected this add request with HTTP 409 Conflict. "
+                        "The torrent may already exist. No existing torrent or data was deleted. "
+                        "Check the qBittorrent Web UI before retrying."
+                    )
             else:
                 error_msg = (
                     f"qBittorrent could not add this input. Use a valid magnet or direct "
