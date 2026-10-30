@@ -77,7 +77,10 @@ def _torrent_info_hash(link):
         if len(value) == 40:
             return value.lower()
         if len(value) == 32:
-            return b32decode(value.upper()).hex()
+            try:
+                return b32decode(value.upper()).hex()
+            except ValueError:
+                return None
 
     try:
         with open(link, "rb") as torrent_file:
