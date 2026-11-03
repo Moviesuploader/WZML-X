@@ -210,54 +210,64 @@ def get_progress_bar_string(pct):
 
 
 async def get_readable_message(sid, is_user, page_no=1, status="All", page_step=1):
-    """Render the detailed multi-task dashboard with task-name headings."""
+    """Render compact premium task cards while preserving all status controls."""
     tasks = await get_specific_tasks(status, sid if is_user else None)
     status_limit = max(1, int(Config.STATUS_LIMIT or 10))
     tasks_no = len(tasks)
-    pages = (max(tasks_no, 1) + status_limit - 1) // status_limit
+    pages = max(1, (tasks_no + status_limit - 1) // status_limit)
     if page_no > pages:
         page_no = (page_no - 1) % pages + 1
         status_dict[sid]["page_no"] = page_no
     elif page_no < 1:
         page_no = max(1, pages - (abs(page_no) % pages))
         status_dict[sid]["page_no"] = page_no
+
     start_position = (page_no - 1) * status_limit
+    selected_tasks = tasks[start_position : start_position + status_limit]
     buttons = ButtonMaker()
     bot_limit = max(0, int(Config.BOT_MAX_TASKS or 0))
-    msg = (
-        f"<b>Tasks: {tasks_no}/{bot_limit or '∞'}</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
-    )
 
-    def progress_dots(value, width=12):
+    def clean(value, limit=48):
+        value = escape(str(value if value not in (None, "") else "—"))
+        return value if len(value) <= limit else value[: limit - 1] + "…"
+
+    def progress_value(value):
         try:
-            numeric = float(str(value).strip().rstrip("%"))
+            return min(100.0, max(0.0, float(str(value).strip().rstrip("%"))))
         except (TypeError, ValueError):
-            numeric = 0.0
-        filled = min(width, max(0, round(min(100.0, max(0.0, numeric)) / 100 * width)))
-        return "■" * filled + "□" * (width - filled)
+            return 0.0
+
+    def progress_bar(value, width=12):
+        filled = round(progress_value(value) / 100 * width)
+        return "█" * filled + "░" * (width - filled)
 
     def status_label(value):
         labels = {
-            MirrorStatus.STATUS_UPLOAD: "Upload",
-            MirrorStatus.STATUS_DOWNLOAD: "Download",
-            MirrorStatus.STATUS_QUEUEDL: "Queued",
-            MirrorStatus.STATUS_QUEUEUP: "Queued Upload",
-            MirrorStatus.STATUS_PAUSED: "Paused",
-            MirrorStatus.STATUS_CLONE: "Clone",
-            MirrorStatus.STATUS_EXTRACT: "Extract",
-            MirrorStatus.STATUS_ARCHIVE: "Archive",
-            MirrorStatus.STATUS_SPLIT: "Split",
-            MirrorStatus.STATUS_CONVERT: "Convert",
-            MirrorStatus.STATUS_FFMPEG: "FFmpeg",
-            MirrorStatus.STATUS_YT: "YouTube",
-            MirrorStatus.STATUS_CHECK: "Checking",
-            MirrorStatus.STATUS_SEED: "Seeding",
+            MirrorStatus.STATUS_UPLOAD: "UPLOADING",
+            MirrorStatus.STATUS_DOWNLOAD: "DOWNLOADING",
+            MirrorStatus.STATUS_QUEUEDL: "QUEUED",
+            MirrorStatus.STATUS_QUEUEUP: "UPLOAD QUEUE",
+            MirrorStatus.STATUS_PAUSED: "PAUSED",
+            MirrorStatus.STATUS_CLONE: "CLONING",
+            MirrorStatus.STATUS_EXTRACT: "EXTRACTING",
+            MirrorStatus.STATUS_ARCHIVE: "ARCHIVING",
+            MirrorStatus.STATUS_SPLIT: "SPLITTING",
+            MirrorStatus.STATUS_CONVERT: "CONVERTING",
+            MirrorStatus.STATUS_FFMPEG: "FFMPEG",
+            MirrorStatus.STATUS_YT: "YOUTUBE",
+            MirrorStatus.STATUS_CHECK: "CHECKING",
+            MirrorStatus.STATUS_SEED: "SEEDING",
         }
-        return labels.get(value, str(value))
+        return labels.get(value, str(value).upper())
 
-    selected_tasks = tasks[start_position : status_limit + start_position]
     from ..telegram_helper.bot_commands import BotCommands
+
+    msg = (
+        "<b>✦ WZML-X  /  TASK CENTER</b>\n"
+        f"<code>{tasks_no} ACTIVE</code>  •  "
+        f"<code>LIMIT {bot_limit or '∞'}</code>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+    )
 
     for index, task in enumerate(selected_tasks, start=start_position + 1):
         if status != "All":
@@ -266,83 +276,108 @@ async def get_readable_message(sid, is_user, page_no=1, status="All", page_step=
             tstatus = await task.status()
         else:
             tstatus = task.status()
+
         try:
-            task_name = escape(str(task.name() or "Resolving task…"))
+            task_name = clean(task.name() or "Resolving task…", 105)
         except Exception:
             task_name = "Active task"
+
+        raw_progress = task.progress()
+        pct = progress_value(raw_progress)
         try:
             elapsed = get_readable_time(max(0, time() - task.listener.message.date.timestamp()))
         except Exception:
             elapsed = "—"
+
         sender = getattr(task.listener.message, "from_user", None)
         sender_id = getattr(sender, "id", getattr(task.listener, "user_id", "—"))
-        sender_name = escape(str(getattr(sender, "first_name", None) or getattr(sender, "username", None) or sender_id))
-        raw_progress = task.progress()
-        try:
-            numeric_progress = float(str(raw_progress).strip().rstrip("%"))
-        except (TypeError, ValueError):
-            numeric_progress = 0.0
-        progress_text = escape(str(raw_progress))
-        processed = escape(str(task.processed_bytes()))
-        size = escape(str(task.size()))
-        speed = escape(str(task.speed()))
-        eta = escape(str(task.eta()))
-        engine = escape(str(task.engine))
+        sender_name = clean(
+            getattr(sender, "first_name", None)
+            or getattr(sender, "username", None)
+            or sender_id,
+            24,
+        )
+        processed = clean(task.processed_bytes(), 18)
+        size = clean(task.size(), 18)
+        speed = clean(task.speed(), 18)
+        eta = clean(task.eta(), 14)
+        engine = clean(task.engine, 24)
+
         mode = getattr(task.listener, "mode", ()) or ()
         if not isinstance(mode, (tuple, list)):
             mode = (str(mode), "")
-        in_mode = escape(str(mode[0] if mode else "—"))
-        out_mode = escape(str(mode[1] if len(mode) > 1 else "—"))
+        in_mode = clean(mode[0] if mode else "—", 16)
+        out_mode = clean(mode[1] if len(mode) > 1 else "—", 16)
+
         if getattr(task.listener, "is_leech", False):
-            upload_label = "Telegram"
+            destination = "Telegram"
             if getattr(task.listener, "compress", False):
-                upload_label += " as Zip"
+                destination += " · ZIP"
             elif getattr(task.listener, "extract", False):
-                upload_label += " after Extract"
+                destination += " · Extract"
             elif getattr(task.listener, "as_doc", False):
-                upload_label += " as Document"
+                destination += " · Document"
             elif getattr(task.listener, "as_med", False):
-                upload_label += " as Media"
+                destination += " · Media"
         else:
-            upload_label = out_mode.lstrip("#")
-        upload_label = escape(upload_label)
+            destination = out_mode.lstrip("#")
+        destination = clean(destination, 24)
+
         msg += (
-            f"<b>{index}. {task_name}</b>\n"
-            f"<b>{escape(status_label(str(tstatus)))}</b>\n"
-            f"{progress_dots(numeric_progress)} {progress_text}\n"
-            f"<b>Processed:</b> {processed}\n"
-            f"<b>Size:</b> {size}\n"
-            f"<b>Speed:</b> {speed}\n"
-            f"<b>ETA:</b> {eta}\n"
-            f"<b>Elapsed:</b> {escape(elapsed)}\n"
-            f"<b>Upload:</b> {upload_label}\n"
-            f"<b>Engine:</b> {engine}\n"
-            f"<b>User:</b> {sender_name} ({escape(str(sender_id))})\n"
+            f"\n<b>┏  {index:02d}  {task_name}</b>\n"
+            f"<code>{clean(status_label(str(tstatus)), 18)}</code>  "
+            f"<b>{pct:.1f}%</b>\n"
+            f"<code>{progress_bar(pct)}</code>\n"
+            f"📦 <b>{processed}</b> / {size}   •   ⚡ <b>{speed}</b>\n"
+            f"⏱ ETA <b>{eta}</b>   •   Elapsed <b>{clean(elapsed, 12)}</b>\n"
+            f"⚙️ {engine}   •   {in_mode} → {destination}\n"
+            f"👤 {sender_name}  <code>({clean(sender_id, 16)})</code>\n"
         )
-        if tstatus in (MirrorStatus.STATUS_DOWNLOAD, MirrorStatus.STATUS_PAUSED, MirrorStatus.STATUS_QUEUEDL) and (
-            task.listener.is_torrent or task.listener.is_qbit or task.listener.is_nzb
+
+        if (
+            tstatus in (
+                MirrorStatus.STATUS_DOWNLOAD,
+                MirrorStatus.STATUS_PAUSED,
+                MirrorStatus.STATUS_QUEUEDL,
+            )
+            and (
+                getattr(task.listener, "is_torrent", False)
+                or getattr(task.listener, "is_qbit", False)
+                or getattr(task.listener, "is_nzb", False)
+            )
         ):
-            msg += f"/{BotCommands.SelectCommand[1]}_{task.gid()[:8]}  |  "
-        msg += f"/{BotCommands.CancelTaskCommand[1]}_{task.gid()[:8]}\n\n━━━━━━━━━━━━━━━━━━━━\n\n"
+            msg += f"↳ /{BotCommands.SelectCommand[1]}_{task.gid()[:8]}  "
+        msg += f"↳ /{BotCommands.CancelTaskCommand[1]}_{task.gid()[:8]}\n"
+        msg += "━━━━━━━━━━━━━━━━━━━━\n"
 
     if tasks_no == 0:
         if status == "All":
             return None, None
-        msg += f"No active {escape(status)} tasks.\n\n"
-    if not is_user:
-        buttons.data_button("📜 TStats", f"status {sid} ov", position="header", style=ButtonStyle.PRIMARY)
+        msg += f"\nNo active {clean(status, 24)} tasks.\n"
+
     if tasks_no > status_limit:
-        msg += f"<b>Page:</b> {page_no}/{pages} | <b>Tasks:</b> {tasks_no} | <b>Step:</b> {page_step}\n"
-        buttons.data_button("<<", f"status {sid} pre", position="header")
-        buttons.data_button(">>", f"status {sid} nex", position="header")
+        msg += f"\n<code>PAGE {page_no}/{pages}</code>  •  <code>STEP {page_step}</code>\n"
+        buttons.data_button("‹ Prev", f"status {sid} pre", position="header")
+        buttons.data_button("Next ›", f"status {sid} nex", position="header")
         if tasks_no > 30:
             for step in [1, 2, 4, 6, 8, 10, 15]:
                 buttons.data_button(step, f"status {sid} ps {step}", position="footer")
+
+    if not is_user:
+        buttons.data_button("📊 Overview", f"status {sid} ov", position="header", style=ButtonStyle.PRIMARY)
+
     if status != "All" or tasks_no > 20:
         for label, status_value in list(STATUSES.items()):
             if status_value != status:
                 buttons.data_button(label, f"status {sid} st {status_value}")
-    buttons.data_button("♻️ Refresh", f"status {sid} ref", position="header", style=ButtonStyle.PRIMARY)
+
+    buttons.data_button("↻ Refresh", f"status {sid} ref", position="header", style=ButtonStyle.PRIMARY)
     free_space = disk_usage(DOWNLOAD_DIR).free
-    msg += f"CPU: {cpu_percent()}% | FREE: {get_readable_file_size(free_space)}\nRAM: {virtual_memory().percent}% | UPTIME: {get_readable_time(time() - bot_start_time)}"
+    msg += (
+        "\n<b>SERVER</b>  "
+        f"CPU <b>{cpu_percent()}%</b>  •  "
+        f"RAM <b>{virtual_memory().percent}%</b>\n"
+        f"💾 Free <b>{get_readable_file_size(free_space)}</b>  •  "
+        f"⏳ Up <b>{get_readable_time(time() - bot_start_time)}</b>"
+    )
     return msg, buttons.build_menu(8)
