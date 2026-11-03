@@ -4,6 +4,8 @@ from asyncio import sleep, TimeoutError
 from aioqbt.api import AddFormBuilder
 from aioqbt.exc import AQError
 from aiohttp.client_exceptions import ClientError
+from base64 import b32decode
+from urllib.parse import parse_qs, urlsplit
 
 from .... import (
     task_dict,
@@ -42,6 +44,62 @@ def _get_hash_file(fpath):
 """
 
 
+def _magnet_infohashes(link):
+    """Return supported v1/v2 infohash candidates from a magnet URI."""
+    if not isinstance(link, str) or not link.startswith("magnet:?"):
+        return []
+    candidates = []
+    try:
+        xt_values = parse_qs(urlsplit(link).query).get("xt", [])
+    except Exception:
+        return []
+    for xt in xt_values:
+        value = xt.split(":", 2)[-1].strip()
+        try:
+            if xt.lower().startswith("urn:btih:"):
+                if len(value) == 40:
+                    int(value, 16)
+                    candidates.append(value.lower())
+                elif len(value) == 32:
+                    candidates.append(b32decode(value.upper()).hex())
+            elif xt.lower().startswith("urn:btmh:1220") and len(value) == 68:
+                digest = value[4:]
+                int(digest, 16)
+                candidates.append(digest.lower())
+        except Exception:
+            continue
+    return list(dict.fromkeys(candidates))
+
+
+async def _describe_existing_magnet(link):
+    """Diagnose a qBittorrent 409 without modifying or deleting existing data."""
+    for infohash in _magnet_infohashes(link):
+        try:
+            matches = await TorrentManager.qbittorrent.torrents.info(
+                hashes=[infohash]
+            )
+        except Exception as lookup_error:
+            LOGGER.warning(
+                "Could not inspect qBittorrent after HTTP 409 (%s)",
+                type(lookup_error).__name__,
+            )
+            continue
+        if matches:
+            item = matches[0]
+            return (
+                f"Matching torrent already exists: {item.name} "
+                f"(state: {item.state}, progress: {round(item.progress * 100, 2)}%). "
+                "Existing data was left untouched. Check the current task list "
+                "before retrying."
+            )
+    return (
+        "qBittorrent returned HTTP 409, but no matching v1/v2 magnet hash was "
+        "found in its torrent list. No existing torrent data was changed. "
+        "Check qBittorrent application logs and Web UI for the exact conflict."
+    )
+
+
+
 async def add_qb_torrent(listener, path, ratio, seed_time):
     if Config.DISABLE_TORRENTS:
         await listener.on_download_error("Torrents are disabled in the configuration.")
@@ -69,13 +127,7 @@ async def add_qb_torrent(listener, path, ratio, seed_time):
             if status is None:
                 status = getattr(getattr(e, "response", None), "status", None)
             if status == 409 or "status=409" in str(e):
-                error_msg = (
-                    "qBittorrent returned HTTP 409 Conflict. This usually means the same "
-                    "torrent/magnet is already present in qBittorrent. Check the qBittorrent "
-                    "Web UI for the existing torrent before retrying; do not delete its data. "
-                    "If no matching torrent exists, verify that the input is a valid magnet "
-                    "or a direct .torrent URL/file."
-                )
+                error_msg = await _describe_existing_magnet(listener.link)
             else:
                 error_msg = (
                     f"qBittorrent could not add this input. Use a valid magnet or direct "
