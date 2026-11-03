@@ -16,7 +16,7 @@ from pyrogram.enums import ChatType
 from pyrogram.handlers import MessageHandler
 
 
-from .. import auth_chats, excluded_extensions, sudo_users, user_data
+from .. import LOGGER, auth_chats, excluded_extensions, sudo_users, user_data
 from ..core.config_manager import Config
 from ..core.seedr_client import SeedrClient
 from ..core.tg_client import TgClient
@@ -1863,6 +1863,7 @@ async def event_handler(client, query, pfunc, rfunc, photo=False, document=False
     user_id = query.from_user.id
     handler_dict[user_id] = True
     start_time = update_time = time()
+    handler = None
 
     async def event_filter(_, __, event):
         if photo:
@@ -1873,27 +1874,50 @@ async def event_handler(client, query, pfunc, rfunc, photo=False, document=False
             mtype = event.text
         user = event.from_user or event.sender_chat
         return bool(
-            user.id == user_id and event.chat.id == query.message.chat.id and mtype
+            user
+            and getattr(user, "id", None) == user_id
+            and getattr(getattr(event, "chat", None), "id", None)
+            == query.message.chat.id
+            and mtype
         )
 
-    handler = client.add_handler(
-        MessageHandler(pfunc, filters=create(event_filter)), group=-1
-    )
+    try:
+        handler = client.add_handler(
+            MessageHandler(pfunc, filters=create(event_filter)), group=-1
+        )
 
-    while handler_dict[user_id]:
-        await sleep(0.5)
-        if time() - start_time > 60:
-            handler_dict[user_id] = False
-            await rfunc()
-        elif time() - update_time > 8 and handler_dict[user_id]:
-            update_time = time()
-            msg = await client.get_messages(query.message.chat.id, query.message.id)
-            text = msg.text.split("\n")
-            text[-1] = (
-                f"┖ <b>Time Left :</b> <code>{round(60 - (time() - start_time), 2)} sec</code>"
-            )
-            await edit_message(msg, "\n".join(text), msg.reply_markup)
-    client.remove_handler(*handler)
+        while handler_dict[user_id]:
+            await sleep(0.5)
+            elapsed = time() - start_time
+            if elapsed >= 60:
+                handler_dict[user_id] = False
+                await rfunc()
+                break
+
+            # Refresh the visible countdown periodically without letting a
+            # transient Telegram fetch/edit error kill the input handler.
+            if time() - update_time >= 5 and handler_dict[user_id]:
+                update_time = time()
+                try:
+                    msg = await client.get_messages(
+                        query.message.chat.id, query.message.id
+                    )
+                    if msg and msg.text:
+                        text = msg.text.split("\\n")
+                        text[-1] = (
+                            f"┖ <b>Time Left :</b> "
+                            f"<code>{max(0, round(60 - elapsed, 2))} sec</code>"
+                        )
+                        await edit_message(msg, "\\n".join(text), msg.reply_markup)
+                except Exception as err:
+                    LOGGER.warning(
+                        "Settings countdown refresh failed (%s)",
+                        type(err).__name__,
+                    )
+    finally:
+        handler_dict[user_id] = False
+        if handler is not None:
+            client.remove_handler(*handler)
 
 
 _USERS_DUMP_SKIP = {
