@@ -210,125 +210,143 @@ def get_progress_bar_string(pct):
 
 
 async def get_readable_message(sid, is_user, page_no=1, status="All", page_step=1):
-    msg = ""
-    button = None
-
+    """Render the detailed multi-task dashboard with task-name headings."""
     tasks = await get_specific_tasks(status, sid if is_user else None)
-
-    STATUS_LIMIT = Config.STATUS_LIMIT
+    status_limit = max(1, int(Config.STATUS_LIMIT or 10))
     tasks_no = len(tasks)
-    pages = (max(tasks_no, 1) + STATUS_LIMIT - 1) // STATUS_LIMIT
+    pages = (max(tasks_no, 1) + status_limit - 1) // status_limit
     if page_no > pages:
         page_no = (page_no - 1) % pages + 1
         status_dict[sid]["page_no"] = page_no
     elif page_no < 1:
-        page_no = pages - (abs(page_no) % pages)
+        page_no = max(1, pages - (abs(page_no) % pages))
         status_dict[sid]["page_no"] = page_no
-    start_position = (page_no - 1) * STATUS_LIMIT
+    start_position = (page_no - 1) * status_limit
+    buttons = ButtonMaker()
+    bot_limit = max(0, int(Config.BOT_MAX_TASKS or 0))
+    msg = (
+        "<b>Tasks Dashboard</b>\n"
+        f"<b>Tasks:</b> {tasks_no}/{bot_limit or '∞'} · <b>Per page:</b> {status_limit}\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
 
-    for index, task in enumerate(
-        tasks[start_position : STATUS_LIMIT + start_position], start=1
-    ):
+    def progress_dots(value, width=12):
+        try:
+            numeric = float(str(value).strip().rstrip("%"))
+        except (TypeError, ValueError):
+            numeric = 0.0
+        filled = min(width, max(0, round(min(100.0, max(0.0, numeric)) / 100 * width)))
+        return "■" * filled + "□" * (width - filled)
+
+    def status_label(value):
+        labels = {
+            MirrorStatus.STATUS_UPLOAD: "Upload",
+            MirrorStatus.STATUS_DOWNLOAD: "Download",
+            MirrorStatus.STATUS_QUEUEDL: "Queued",
+            MirrorStatus.STATUS_QUEUEUP: "Queued Upload",
+            MirrorStatus.STATUS_PAUSED: "Paused",
+            MirrorStatus.STATUS_CLONE: "Clone",
+            MirrorStatus.STATUS_EXTRACT: "Extract",
+            MirrorStatus.STATUS_ARCHIVE: "Archive",
+            MirrorStatus.STATUS_SPLIT: "Split",
+            MirrorStatus.STATUS_CONVERT: "Convert",
+            MirrorStatus.STATUS_FFMPEG: "FFmpeg",
+            MirrorStatus.STATUS_YT: "YouTube",
+            MirrorStatus.STATUS_CHECK: "Checking",
+            MirrorStatus.STATUS_SEED: "Seeding",
+        }
+        return labels.get(value, str(value))
+
+    selected_tasks = tasks[start_position : status_limit + start_position]
+    from ..telegram_helper.bot_commands import BotCommands
+
+    for index, task in enumerate(selected_tasks, start=start_position + 1):
         if status != "All":
             tstatus = status
         elif iscoroutinefunction(task.status):
             tstatus = await task.status()
         else:
             tstatus = task.status()
-        msg += f"<b>{index + start_position}.</b> "
-        msg += f"<b><i>{escape(f'{task.name()}')}</i></b>"
-        if task.listener.subname:
-            msg += f"\n┖ <b>Sub Name</b> → <i>{task.listener.subname}</i>"
-        elapsed = time() - task.listener.message.date.timestamp()
-
-        msg += f"\n\n<b>Task By {task.listener.message.from_user.mention(style='html')} </b> ( #ID{task.listener.message.from_user.id} )"
-        if task.listener.is_super_chat:
-            msg += f" <i>[<a href='{task.listener.message.link}'>Link</a>]</i>"
-
-        if (
-            tstatus not in [MirrorStatus.STATUS_SEED, MirrorStatus.STATUS_QUEUEUP]
-            and task.listener.progress
-        ):
-            progress = task.progress()
-            msg += f"\n┟ {get_progress_bar_string(progress)} <i>{progress}</i>"
-            if task.listener.subname:
-                subsize = f" / {get_readable_file_size(task.listener.subsize)}"
-                ac = len(task.listener.files_to_proceed)
-                count = f"( {task.listener.proceed_count} / {ac or '?'} )"
-            else:
-                subsize = ""
-                count = ""
-            msg += f"\n┠ <b>Processed</b> → <i>{task.processed_bytes()}{subsize} of {task.size()}</i>"
-            if count:
-                msg += f"\n┠ <b>Count:</b> → <b>{count}</b>"
-            msg += f"\n┠ <b>Status</b> → <b>{tstatus}</b>"
-            msg += f"\n┠ <b>Speed</b> → <i>{task.speed()}</i>"
-            msg += f"\n┠ <b>Time</b> → <i>{task.eta()} of {get_readable_time(elapsed + get_raw_time(task.eta()))} ( {get_readable_time(elapsed)} )</i>"
-            if tstatus == MirrorStatus.STATUS_DOWNLOAD and (
-                task.listener.is_torrent or task.listener.is_qbit
-            ):
-                try:
-                    msg += f"\n┠ <b>Seeders</b> → {task.seeders_num()} | <b>Leechers</b> → {task.leechers_num()}"
-                except Exception:
-                    pass
-            # TODO: Add Connected Peers
-        elif tstatus == MirrorStatus.STATUS_SEED:
-            msg += f"\n┠ <b>Size</b> → <i>{task.size()}</i> | <b>Uploaded</b>  → <i>{task.uploaded_bytes()}</i>"
-            msg += f"\n┠ <b>Status</b> → <b>{tstatus}</b>"
-            msg += f"\n┠ <b>Speed</b> → <i>{task.seed_speed()}</i>"
-            msg += f"\n┠ <b>Ratio</b> → <i>{task.ratio()}</i>"
-            msg += f"\n┠ <b>Time</b> → <i>{task.seeding_time()}</i> | <b>Elapsed</b> → <i>{get_readable_time(elapsed)}</i>"
+        try:
+            task_name = escape(str(task.name() or "Resolving task…"))
+        except Exception:
+            task_name = "Active task"
+        try:
+            elapsed = get_readable_time(max(0, time() - task.listener.message.date.timestamp()))
+        except Exception:
+            elapsed = "—"
+        sender = getattr(task.listener.message, "from_user", None)
+        sender_id = getattr(sender, "id", getattr(task.listener, "user_id", "—"))
+        sender_name = escape(str(getattr(sender, "first_name", None) or getattr(sender, "username", None) or sender_id))
+        raw_progress = task.progress()
+        try:
+            numeric_progress = float(str(raw_progress).strip().rstrip("%"))
+        except (TypeError, ValueError):
+            numeric_progress = 0.0
+        progress_text = escape(str(raw_progress))
+        processed = escape(str(task.processed_bytes()))
+        size = escape(str(task.size()))
+        speed = escape(str(task.speed()))
+        eta = escape(str(task.eta()))
+        engine = escape(str(task.engine))
+        mode = getattr(task.listener, "mode", ()) or ()
+        if not isinstance(mode, (tuple, list)):
+            mode = (str(mode), "")
+        in_mode = escape(str(mode[0] if mode else "—"))
+        out_mode = escape(str(mode[1] if len(mode) > 1 else "—"))
+        if getattr(task.listener, "is_leech", False):
+            upload_label = "Telegram"
+            if getattr(task.listener, "compress", False):
+                upload_label += " as Zip"
+            elif getattr(task.listener, "extract", False):
+                upload_label += " after Extract"
+            elif getattr(task.listener, "as_doc", False):
+                upload_label += " as Document"
+            elif getattr(task.listener, "as_med", False):
+                upload_label += " as Media"
         else:
-            msg += f"\n┠ <b>Size</b> → <i>{task.size()}</i>"
-        msg += f"\n┠ <b>Engine</b> → <i>{task.engine}</i>"
-        msg += f"\n┠ <b>In Mode</b> → <i>{task.listener.mode[0]}</i>"
-        msg += f"\n┠ <b>Out Mode</b> → <i>{task.listener.mode[1]}</i>"
-        from ..telegram_helper.bot_commands import BotCommands
+            upload_label = out_mode.lstrip("#")
+        upload_label = escape(upload_label)
+        msg += (
+            f"<b>{index}. {task_name}</b>\n"
+            f"╭ <i>{escape(status_label(str(tstatus)))}</i>\n"
+            f"├ {progress_dots(numeric_progress)} {progress_text}\n"
+            f"├ <b>Processed:</b> {processed}\n"
+            f"├ <b>Size:</b> {size}\n"
+            f"├ <b>Speed:</b> {speed}\n"
+            f"├ <b>ETA:</b> {eta}\n"
+            f"├ <b>Elapsed:</b> {escape(elapsed)}\n"
+            f"├ <b>Upload:</b> {upload_label}\n"
+            f"├ <b>Engine:</b> {engine}\n"
+            f"├ <b>User:</b> {sender_name} ({escape(str(sender_id))})\n"
+            f"├ <b>In Mode:</b> {in_mode}\n"
+            f"├ <b>Out Mode:</b> {out_mode}\n"
+        )
+        if tstatus in (MirrorStatus.STATUS_DOWNLOAD, MirrorStatus.STATUS_PAUSED, MirrorStatus.STATUS_QUEUEDL) and (
+            task.listener.is_torrent or task.listener.is_qbit or task.listener.is_nzb
+        ):
+            msg += f"├ <b>Select:</b> /{BotCommands.SelectCommand[1]}_{task.gid()[:8]}\n"
+        msg += f"╰ <b>Cancel:</b> /{BotCommands.CancelTaskCommand[1]}_{task.gid()[:8]}\n\n"
 
-        if tstatus in [
-            MirrorStatus.STATUS_DOWNLOAD,
-            MirrorStatus.STATUS_PAUSED,
-            MirrorStatus.STATUS_QUEUEDL,
-        ]:
-            if (
-                task.listener.is_torrent
-                or task.listener.is_qbit
-                or task.listener.is_nzb
-            ):
-                msg += f"\n┠ <b>Select</b> → /{BotCommands.SelectCommand[1]}_{task.gid()[:8]}"
-
-        msg += f"\n<b>┖ Stop</b> → <i>/{BotCommands.CancelTaskCommand[1]}_{task.gid()[:8]}</i>\n\n"
-
-    if len(msg) == 0:
+    if tasks_no == 0:
         if status == "All":
             return None, None
-        else:
-            msg = f"No Active {status} Tasks!\n\n"
-
-    msg += "⌬ <b><u>Bot Stats</u></b>"
-    buttons = ButtonMaker()
+        msg += f"No active {escape(status)} tasks.\n\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━\n<b>Bot Stats</b>\n"
     if not is_user:
-        buttons.data_button(
-            "📜 TStats",
-            f"status {sid} ov",
-            position="header",
-            style=ButtonStyle.PRIMARY,
-        )
-    if len(tasks) > STATUS_LIMIT:
+        buttons.data_button("📜 TStats", f"status {sid} ov", position="header", style=ButtonStyle.PRIMARY)
+    if tasks_no > status_limit:
         msg += f"<b>Page:</b> {page_no}/{pages} | <b>Tasks:</b> {tasks_no} | <b>Step:</b> {page_step}\n"
         buttons.data_button("<<", f"status {sid} pre", position="header")
         buttons.data_button(">>", f"status {sid} nex", position="header")
         if tasks_no > 30:
-            for i in [1, 2, 4, 6, 8, 10, 15]:
-                buttons.data_button(i, f"status {sid} ps {i}", position="footer")
+            for step in [1, 2, 4, 6, 8, 10, 15]:
+                buttons.data_button(step, f"status {sid} ps {step}", position="footer")
     if status != "All" or tasks_no > 20:
         for label, status_value in list(STATUSES.items()):
             if status_value != status:
                 buttons.data_button(label, f"status {sid} st {status_value}")
-    buttons.data_button(
-        "♻️ Refresh", f"status {sid} ref", position="header", style=ButtonStyle.PRIMARY
-    )
-    button = buttons.build_menu(8)
-    msg += f"\n┟ <b>CPU</b> → {cpu_percent()}% | <b>F</b> → {get_readable_file_size(disk_usage(DOWNLOAD_DIR).free)} [{round(100 - disk_usage(DOWNLOAD_DIR).percent, 1)}%]"
-    msg += f"\n┖ <b>RAM</b> → {virtual_memory().percent}% | <b>UP</b> → {get_readable_time(time() - bot_start_time)}"
-    return msg, button
+    buttons.data_button("♻️ Refresh", f"status {sid} ref", position="header", style=ButtonStyle.PRIMARY)
+    free_space = disk_usage(DOWNLOAD_DIR).free
+    msg += f"CPU: {cpu_percent()}% | FREE: {get_readable_file_size(free_space)}\nRAM: {virtual_memory().percent}% | UPTIME: {get_readable_time(time() - bot_start_time)}"
+    return msg, buttons.build_menu(8)
