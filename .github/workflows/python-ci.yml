@@ -1,0 +1,24 @@
+name: Python CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  compile-and-regression-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile bot source
+        run: python -m compileall -q bot
+      - name: Run workflow regression checks
+        run: python -m unittest discover -s tests -v
