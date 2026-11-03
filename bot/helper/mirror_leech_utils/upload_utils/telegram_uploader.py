@@ -544,7 +544,10 @@ class TelegramUploader:
                         )
                     )
                     upload_tasks.append(task)
-                    if not Config.USE_HYPER:
+                    # Extracted archives must be delivered in natural filename order.
+                    # Await each file before starting the next one so Bot PM copies arrive
+                    # immediately and in the same sequence as the extracted episodes.
+                    if not Config.USE_HYPER or self._listener.extract:
                         await task
                     seq_idx += 1
                     if self._listener.is_cancelled:
