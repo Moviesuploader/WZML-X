@@ -225,8 +225,7 @@ async def get_readable_message(sid, is_user, page_no=1, status="All", page_step=
     buttons = ButtonMaker()
     bot_limit = max(0, int(Config.BOT_MAX_TASKS or 0))
     msg = (
-        "<b>Tasks Dashboard</b>\n"
-        f"<b>Tasks:</b> {tasks_no}/{bot_limit or '∞'} · <b>Per page:</b> {status_limit}\n"
+        f"<b>Tasks: {tasks_no}/{bot_limit or '∞'}</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
     )
 
@@ -309,30 +308,27 @@ async def get_readable_message(sid, is_user, page_no=1, status="All", page_step=
         upload_label = escape(upload_label)
         msg += (
             f"<b>{index}. {task_name}</b>\n"
-            f"╭ <i>{escape(status_label(str(tstatus)))}</i>\n"
-            f"├ {progress_dots(numeric_progress)} {progress_text}\n"
-            f"├ <b>Processed:</b> {processed}\n"
-            f"├ <b>Size:</b> {size}\n"
-            f"├ <b>Speed:</b> {speed}\n"
-            f"├ <b>ETA:</b> {eta}\n"
-            f"├ <b>Elapsed:</b> {escape(elapsed)}\n"
-            f"├ <b>Upload:</b> {upload_label}\n"
-            f"├ <b>Engine:</b> {engine}\n"
-            f"├ <b>User:</b> {sender_name} ({escape(str(sender_id))})\n"
-            f"├ <b>In Mode:</b> {in_mode}\n"
-            f"├ <b>Out Mode:</b> {out_mode}\n"
+            f"<b>{escape(status_label(str(tstatus)))}</b>\n"
+            f"{progress_dots(numeric_progress)} {progress_text}\n"
+            f"<b>Processed:</b> {processed}\n"
+            f"<b>Size:</b> {size}\n"
+            f"<b>Speed:</b> {speed}\n"
+            f"<b>ETA:</b> {eta}\n"
+            f"<b>Elapsed:</b> {escape(elapsed)}\n"
+            f"<b>Upload:</b> {upload_label}\n"
+            f"<b>Engine:</b> {engine}\n"
+            f"<b>User:</b> {sender_name} ({escape(str(sender_id))})\n"
         )
         if tstatus in (MirrorStatus.STATUS_DOWNLOAD, MirrorStatus.STATUS_PAUSED, MirrorStatus.STATUS_QUEUEDL) and (
             task.listener.is_torrent or task.listener.is_qbit or task.listener.is_nzb
         ):
-            msg += f"├ <b>Select:</b> /{BotCommands.SelectCommand[1]}_{task.gid()[:8]}\n"
-        msg += f"╰ <b>Cancel:</b> /{BotCommands.CancelTaskCommand[1]}_{task.gid()[:8]}\n\n"
+            msg += f"/{BotCommands.SelectCommand[1]}_{task.gid()[:8]}  |  "
+        msg += f"/{BotCommands.CancelTaskCommand[1]}_{task.gid()[:8]}\n\n━━━━━━━━━━━━━━━━━━━━\n\n"
 
     if tasks_no == 0:
         if status == "All":
             return None, None
         msg += f"No active {escape(status)} tasks.\n\n"
-    msg += "━━━━━━━━━━━━━━━━━━━━\n<b>Bot Stats</b>\n"
     if not is_user:
         buttons.data_button("📜 TStats", f"status {sid} ov", position="header", style=ButtonStyle.PRIMARY)
     if tasks_no > status_limit:
