@@ -334,20 +334,35 @@ async def get_readable_message(sid, is_user, page_no=1, status="All", page_step=
             f"👤 {sender_name}  <code>({clean(sender_id, 16)})</code>\n"
         )
 
+        gid = task.gid()[:8]
         if (
             tstatus in (
                 MirrorStatus.STATUS_DOWNLOAD,
                 MirrorStatus.STATUS_PAUSED,
                 MirrorStatus.STATUS_QUEUEDL,
             )
-            and (
-                getattr(task.listener, "is_torrent", False)
-                or getattr(task.listener, "is_qbit", False)
-                or getattr(task.listener, "is_nzb", False)
-            )
+            and getattr(task.listener, "is_qbit", False)
         ):
-            msg += f"↳ /{BotCommands.SelectCommand[1]}_{task.gid()[:8]}  "
-        msg += f"↳ /{BotCommands.CancelTaskCommand[1]}_{task.gid()[:8]}\n"
+            buttons.data_button(
+                f"📁 Select #{index}", f"taskact select {gid}",
+                position="f_body", style=ButtonStyle.SUCCESS,
+            )
+        buttons.data_button(
+            f"✖ Cancel #{index}", f"taskact cancel {gid}",
+            position="f_body", style=ButtonStyle.DANGER,
+        )
+        # Keep command fallbacks for clients where inline keyboards are unavailable.
+        if tstatus in (
+            MirrorStatus.STATUS_DOWNLOAD,
+            MirrorStatus.STATUS_PAUSED,
+            MirrorStatus.STATUS_QUEUEDL,
+        ) and (
+            getattr(task.listener, "is_torrent", False)
+            or getattr(task.listener, "is_qbit", False)
+            or getattr(task.listener, "is_nzb", False)
+        ):
+            msg += f"↳ /{BotCommands.SelectCommand[1]}_{gid}  "
+        msg += f"↳ /{BotCommands.CancelTaskCommand[1]}_{gid}\\n"
         msg += "━━━━━━━━━━━━━━━━━━━━\n"
 
     if tasks_no == 0:
@@ -380,4 +395,4 @@ async def get_readable_message(sid, is_user, page_no=1, status="All", page_step=
         f"💾 Free <b>{get_readable_file_size(free_space)}</b>  •  "
         f"⏳ Up <b>{get_readable_time(time() - bot_start_time)}</b>"
     )
-    return msg, buttons.build_menu(8)
+    return msg, buttons.build_menu(8, fb_cols=2)
