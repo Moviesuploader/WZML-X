@@ -27,5 +27,18 @@ class LeechWorkflowRegressionTests(unittest.TestCase):
         self.assertIn("client.remove_handler(*handler)", source)
 
 
+    def test_qbit_409_reports_matching_magnet_without_touching_data(self):
+        source = self.read("bot/helper/mirror_leech_utils/download_utils/qbit_download.py")
+        self.assertIn("def _magnet_infohashes(link):", source)
+        self.assertIn("torrents.info(", source)
+        self.assertIn("Existing data was left untouched", source)
+
+    def test_status_dashboard_uses_task_name_heading(self):
+        source = self.read("bot/helper/ext_utils/status_utils.py")
+        self.assertIn('f"<b>{index}. {task_name}</b>', source)
+        self.assertIn("<b>Processed:</b>", source)
+        self.assertIn("<b>Engine:</b>", source)
+
+
 if __name__ == "__main__":
     unittest.main()
