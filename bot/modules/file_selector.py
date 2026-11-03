@@ -109,11 +109,10 @@ async def select(_, message):
     await send_message(message, msg, SBUTTONS)
 
 
-async def _show_qbit_file_page(query, task, gid, page=0, message=None):
+async def _show_qbit_file_page(query, task, gid, page=0):
     if not task.listener.is_qbit or TorrentManager.qbittorrent is None:
         await query.answer("Telegram file selection currently supports qBittorrent tasks.", show_alert=True)
         return
-    panel = message or query.message
     try:
         files = await TorrentManager.qbittorrent.torrents.files(task.hash())
         if not files:
@@ -153,70 +152,13 @@ async def _show_qbit_file_page(query, task, gid, page=0, message=None):
             position="footer", style=ButtonStyle.DANGER,
         )
         lines += ["", "Selected files download; deselected files are skipped."]
-        await panel.edit_text(
+        await query.message.edit_text(
             "\\n".join(lines), reply_markup=buttons.build_menu(1),
             disable_web_page_preview=True,
         )
     except Exception as exc:
         LOGGER.exception("Telegram-native file selector failed")
         await query.answer(f"Selector error: {str(exc)[:120]}", show_alert=True)
-
-
-@new_task
-async def task_action(_, query):
-    """Handle per-task actions from the live status cards."""
-    data = query.data.split()
-    if len(data) != 3 or data[1] not in ("cancel", "select"):
-        await query.answer("Invalid task action.", show_alert=True)
-        return
-
-    action, gid = data[1], data[2]
-    user_id = query.from_user.id
-    task = await get_task_by_gid(gid)
-    if task is None:
-        await query.answer("Task is already finished or no longer exists.", show_alert=True)
-        return
-
-    is_sudo = user_id == Config.OWNER_ID or (
-        user_id in user_data and user_data[user_id].get("SUDO")
-    )
-    if task.listener.user_id != user_id and not is_sudo:
-        await query.answer("This task is not yours.", show_alert=True)
-        return
-
-    if action == "cancel":
-        await query.answer("Cancelling task…")
-        await task.task().cancel_task()
-        return
-
-    if not getattr(task.listener, "is_qbit", False):
-        await query.answer("Inline file selection is available for qBittorrent tasks.", show_alert=True)
-        return
-    if not iscoroutinefunction(task.status) or await task.status() not in (
-        MirrorStatus.STATUS_DOWNLOAD,
-        MirrorStatus.STATUS_PAUSED,
-        MirrorStatus.STATUS_QUEUEDL,
-    ):
-        await query.answer("This task is not in a selectable download state.", show_alert=True)
-        return
-    if task.name().startswith("[METADATA]") or task.name().startswith("Trying"):
-        await query.answer("Please wait until torrent metadata is ready.", show_alert=True)
-        return
-
-    try:
-        await task.update()
-        if not task.queued:
-            await TorrentManager.qbittorrent.torrents.stop([task.hash()])
-        task.listener.select = True
-        panel = await query.message.reply_text(
-            "<b>Download paused.</b> Choose files below, then tap Done Selecting.",
-            quote=True,
-        )
-        await _show_qbit_file_page(query, task, gid, 0, message=panel)
-        await query.answer("File selector opened.")
-    except Exception as exc:
-        LOGGER.exception("Status-card task selection failed")
-        await query.answer(f"Could not open selector: {str(exc)[:100]}", show_alert=True)
 
 
 async def _selection_limit_exceeded(task, message):
