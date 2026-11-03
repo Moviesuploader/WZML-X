@@ -329,9 +329,6 @@ async def get_readable_message(sid, is_user, page_no=1, status="All", page_step=
         if status == "All":
             return None, None
         msg += f"No active {escape(status)} tasks.\n\n"
-    if tasks_no > status_limit:
-        msg += f"Page: {page_no}/{pages} | Tasks: {tasks_no} | Step: {page_step}\n"
-    msg += ""
     if not is_user:
         buttons.data_button("📜 TStats", f"status {sid} ov", position="header", style=ButtonStyle.PRIMARY)
     if tasks_no > status_limit:
