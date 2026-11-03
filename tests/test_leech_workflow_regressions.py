@@ -33,11 +33,17 @@ class LeechWorkflowRegressionTests(unittest.TestCase):
         self.assertIn("torrents.info(", source)
         self.assertIn("Existing data was left untouched", source)
 
-    def test_status_dashboard_uses_task_name_heading(self):
+    def test_status_dashboard_uses_premium_task_cards_and_keeps_controls(self):
         source = self.read("bot/helper/ext_utils/status_utils.py")
-        self.assertIn('f"<b>{index}. {task_name}</b>', source)
-        self.assertIn("<b>Processed:</b>", source)
-        self.assertIn("<b>Engine:</b>", source)
+        self.assertIn("<b>✦ WZML-X  /  TASK CENTER</b>", source)
+        self.assertIn("progress_bar(pct)", source)
+        self.assertIn("📦 <b>{processed}</b> / {size}", source)
+        self.assertIn("⚙️ {engine}", source)
+        self.assertIn("BotCommands.SelectCommand[1]", source)
+        self.assertIn("BotCommands.CancelTaskCommand[1]", source)
+        self.assertIn('buttons.data_button("↻ Refresh"', source)
+        self.assertIn('buttons.data_button("‹ Prev"', source)
+        self.assertIn('buttons.data_button("Next ›"', source)
 
 
 if __name__ == "__main__":
