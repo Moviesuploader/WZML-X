@@ -651,7 +651,7 @@ class TaskListener(TaskConfig):
         if self.pm_msg and not Config.DELETE_LINKS:
             await delete_message(self.pm_msg)
 
-        await delete_links(self.message)
+        await delete_links(self.message, keep_reply=self.is_qbit)
 
         await clean_download(self.dir)
         async with task_dict_lock:
@@ -701,7 +701,7 @@ class TaskListener(TaskConfig):
         )
 
         await send_message(self.message, msg, button)
-        await delete_links(self.message)
+        await delete_links(self.message, keep_reply=self.is_qbit)
         if count == 0:
             await self.clean()
         else:
@@ -740,7 +740,7 @@ class TaskListener(TaskConfig):
                 del task_dict[self.mid]
             count = len(task_dict)
         await send_message(self.message, f"{self.tag} {escape(str(error))}")
-        await delete_links(self.message)
+        await delete_links(self.message, keep_reply=self.is_qbit)
         if count == 0:
             await self.clean()
         else:

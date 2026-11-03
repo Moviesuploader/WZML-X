@@ -129,7 +129,7 @@ class Mirror(TaskListener):
 
         check_msg, check_button = await pre_task_check(self.message)
         if check_msg:
-            await delete_links(self.message)
+            await delete_links(self.message, keep_reply=self.is_qbit)
             await auto_delete_message(
                 await send_message(self.message, check_msg, check_button)
             )
@@ -338,7 +338,7 @@ class Mirror(TaskListener):
             except Exception as e:
                 await send_message(self.message, f"ERROR: {e}")
                 await self.remove_from_same_dir()
-                await delete_links(self.message)
+                await delete_links(self.message, keep_reply=self.is_qbit)
                 return
 
         if isinstance(reply_to, list):
@@ -414,7 +414,7 @@ class Mirror(TaskListener):
                 self.message, COMMAND_USAGE["mirror"][0], COMMAND_USAGE["mirror"][1]
             )
             await self.remove_from_same_dir()
-            await delete_links(self.message)
+            await delete_links(self.message, keep_reply=self.is_qbit)
             return
 
         if len(self.link) > 0:
@@ -425,7 +425,7 @@ class Mirror(TaskListener):
         except Exception as e:
             await send_message(self.message, e)
             await self.remove_from_same_dir()
-            await delete_links(self.message)
+            await delete_links(self.message, keep_reply=self.is_qbit)
             return
 
         self._set_mode_engine()
@@ -455,13 +455,13 @@ class Mirror(TaskListener):
                 if e.startswith("ERROR:"):
                     await send_message(self.message, e)
                     await self.remove_from_same_dir()
-                    await delete_links(self.message)
+                    await delete_links(self.message, keep_reply=self.is_qbit)
                     return
                 resolved = None
             except Exception as e:
                 await send_message(self.message, e)
                 await self.remove_from_same_dir()
-                await delete_links(self.message)
+                await delete_links(self.message, keep_reply=self.is_qbit)
                 return
             if isinstance(resolved, dict):
                 self._alldebrid_magnet_id = resolved.get("magnet_id", 0)
@@ -494,12 +494,12 @@ class Mirror(TaskListener):
                     if e.startswith("ERROR:"):
                         await send_message(self.message, e)
                         await self.remove_from_same_dir()
-                        await delete_links(self.message)
+                        await delete_links(self.message, keep_reply=self.is_qbit)
                         return
                 except Exception as e:
                     await send_message(self.message, e)
                     await self.remove_from_same_dir()
-                    await delete_links(self.message)
+                    await delete_links(self.message, keep_reply=self.is_qbit)
                     return
 
             if isinstance(self.link, str) and (
@@ -519,12 +519,12 @@ class Mirror(TaskListener):
                     if e.startswith("ERROR:"):
                         await send_message(self.message, e)
                         await self.remove_from_same_dir()
-                        await delete_links(self.message)
+                        await delete_links(self.message, keep_reply=self.is_qbit)
                         return
                 except Exception as e:
                     await send_message(self.message, e)
                     await self.remove_from_same_dir()
-                    await delete_links(self.message)
+                    await delete_links(self.message, keep_reply=self.is_qbit)
                     return
 
         if file_ is not None:
