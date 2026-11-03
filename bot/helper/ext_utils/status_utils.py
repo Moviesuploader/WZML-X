@@ -351,6 +351,18 @@ async def get_readable_message(sid, is_user, page_no=1, status="All", page_step=
             f"✖ Cancel #{index}", f"taskact cancel {gid}",
             position="f_body", style=ButtonStyle.DANGER,
         )
+        # Keep command fallbacks for clients where inline keyboards are unavailable.
+        if tstatus in (
+            MirrorStatus.STATUS_DOWNLOAD,
+            MirrorStatus.STATUS_PAUSED,
+            MirrorStatus.STATUS_QUEUEDL,
+        ) and (
+            getattr(task.listener, "is_torrent", False)
+            or getattr(task.listener, "is_qbit", False)
+            or getattr(task.listener, "is_nzb", False)
+        ):
+            msg += f"↳ /{BotCommands.SelectCommand[1]}_{gid}  "
+        msg += f"↳ /{BotCommands.CancelTaskCommand[1]}_{gid}\\n"
         msg += "━━━━━━━━━━━━━━━━━━━━\n"
 
     if tasks_no == 0:
