@@ -151,9 +151,6 @@ async def add_handlers():
         CallbackQueryHandler(confirm_selection, filters=regex("^sel"))
     )
     TgClient.bot.add_handler(
-        CallbackQueryHandler(task_action, filters=regex("^taskact "))
-    )
-    TgClient.bot.add_handler(
         MessageHandler(
             remove_from_queue,
             filters=command(BotCommands.ForceStartCommand, case_sensitive=True)
